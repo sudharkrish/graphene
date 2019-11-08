@@ -694,6 +694,22 @@ static int sgx_ocall_get_attestation(void* pms) {
                                    &ms->ms_nonce, &ms->ms_attestation);
 }
 
+static int sgx_ocall_ioctl (void * pms)
+{
+    ms_ocall_ioctl_t * ms = (ms_ocall_ioctl_t *) pms;
+    int64_t retval;
+    ODEBUG(OCALL_IOCTL, ms);
+
+    retval = INLINE_SYSCALL(ioctl, 3, ms->ms_fd, ms->ms_op, ms->ms_arg);
+
+    if (IS_ERR(retval)) {
+        return unix_to_pal_error(ERRNO(retval));
+    } else {
+        ms->ms_retval = retval;
+        return 0;
+    }
+}
+
 sgx_ocall_fn_t ocall_table[OCALL_NR] = {
         [OCALL_EXIT]            = sgx_ocall_exit,
         [OCALL_PRINT_STRING]    = sgx_ocall_print_string,
@@ -735,6 +751,7 @@ sgx_ocall_fn_t ocall_table[OCALL_NR] = {
         [OCALL_LOAD_DEBUG]      = sgx_ocall_load_debug,
         [OCALL_GET_ATTESTATION] = sgx_ocall_get_attestation,
         [OCALL_EVENTFD]         = sgx_ocall_eventfd,
+        [OCALL_IOCTL]           = sgx_ocall_ioctl,
 };
 
 #define EDEBUG(code, ms) do {} while (0)

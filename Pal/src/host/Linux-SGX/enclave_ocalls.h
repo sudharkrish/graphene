@@ -105,4 +105,5 @@ int ocall_get_attestation(const sgx_spid_t* spid, const char* subkey, bool linka
                           const sgx_report_t* report, const sgx_quote_nonce_t* nonce,
                           sgx_attestation_t* attestation);
 int ocall_eventfd (unsigned int initval, int flags);
-
+int ocall_ioctl (int fd, uint64_t op, PAL_ARG* arg, int noutputs, PAL_ARG* outputs,
+                 int ninputs, PAL_ARG* inputs, uint64_t* retval);

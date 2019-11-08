@@ -60,6 +60,7 @@ enum {
     OCALL_LOAD_DEBUG,
     OCALL_GET_ATTESTATION,
     OCALL_EVENTFD,
+    OCALL_IOCTL,
     OCALL_NR,
 };
 
@@ -291,5 +292,12 @@ typedef struct {
     unsigned int ms_initval;
     int          ms_flags;
 } ms_ocall_eventfd_t;
+
+typedef struct {
+    int      ms_fd;
+    uint64_t ms_op;
+    void*    ms_arg;
+    uint64_t ms_retval;
+} ms_ocall_ioctl_t;
 
 #pragma pack(pop)

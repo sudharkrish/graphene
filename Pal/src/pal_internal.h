@@ -338,6 +338,8 @@ int _DkInternalUnlock (PAL_LOCK * mut);
 unsigned long _DkSystemTimeQuery (void);
 size_t _DkFastRandomBitsRead (void * buffer, size_t size);
 
+int64_t _DkHostExtensionCall (PAL_HANDLE handle, PAL_NUM op, PAL_ARG* arg, int noutputs, PAL_ARG* outputs,
+                              int ninputs, PAL_ARG* inputs);
 /*
  * Cryptographically secure random.
  * 0 on success, negative on failure.

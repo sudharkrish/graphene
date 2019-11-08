@@ -41,6 +41,8 @@
 #define TERM_DEFAULT_CFLAG (B38400 | CS8 | CREAD)
 #define TERM_DEFAULT_LFLAG (ICANON | ECHO | ECHOE | ECHOK | ECHOCTL | ECHOKE | IEXTEN)
 
+static int ioctl_passthru (struct shim_handle * hdl, unsigned int cmd, unsigned long arg);
+
 static int ioctl_termios(struct shim_handle* hdl, unsigned int cmd, unsigned long arg) {
     if (hdl->type != TYPE_FILE || hdl->info.file.type != FILE_TTY)
         return -ENOTTY;
@@ -486,10 +488,149 @@ int shim_do_ioctl(int fd, int cmd, unsigned long arg) {
             break;
 
         default:
-            ret = -ENOSYS;
+            ret = ioctl_passthru(hdl, cmd, arg);
             break;
     }
 
     put_handle(hdl);
     return ret;
+}
+
+#define DUMMY_MAGIC 0x61
+#define DUMMY_IOCTL_EFD     _IOWR(DUMMY_MAGIC, 0, struct dummy_efd_info)
+#define DUMMY_IOCTL_PRINT   _IOWR(DUMMY_MAGIC, 1, struct dummy_print)
+
+struct dummy_print {
+    const char *  str;
+    int size;
+};
+
+struct dummy_efd_info {
+    int pid;//may not be needed..
+    int efd;
+};
+
+static int fetch_host_efd(int libos_efd, int *host_efd)
+{
+    struct shim_thread * cur = get_cur_thread();
+    struct shim_handle_map * map = cur->handle_map;
+    int ret = 0;
+
+    struct shim_handle * hdl = get_fd_handle(libos_efd, NULL, map);
+
+    if (!hdl) {
+        return -EBADF;
+    }
+
+    if (hdl->type != TYPE_EVENTFD) {
+        ret = -EINVAL;
+        goto error_exit;
+    }
+
+    PAL_STREAM_ATTR attr;
+    if (!DkStreamAttributesQueryByHandle(hdl->pal_handle, &attr)) {
+        //TODO: check error code.
+        ret = -EACCES;
+        goto error_exit;
+    }
+
+    if (attr.no_of_fds == 1) {
+        *host_efd = attr.fds[0];
+        debug("for libos_efd = %d, host_efd is = %d\n", libos_efd, *host_efd);
+    } else {
+        ret = -EINVAL;
+        goto error_exit;
+    }
+
+error_exit:
+
+    if (hdl)
+        put_handle(hdl);
+
+    return ret;
+
+}
+
+static int ioctl_passthru (struct shim_handle * hdl, unsigned int cmd, unsigned long arg) {
+    PAL_ARG* pal_arg = NULL;
+    PAL_NUM ninputs = 0, noutputs = 0;
+    PAL_ARG* inputs  = NULL;
+    PAL_ARG* outputs = NULL;
+
+    // Don't change these macros
+
+    #define SET_ARG_TYPE(type)                              \
+        do {                                                \
+            pal_arg = __alloca(sizeof(PAL_ARG));            \
+            pal_arg->val  = (PAL_PTR) arg;                  \
+            pal_arg->size = sizeof(type);                   \
+            pal_arg->off  = 0;                              \
+        } while (0)
+
+
+    #define SET_NOUTPUTS(num)                               \
+        do {                                                \
+            outputs = __alloca(sizeof(PAL_ARG) * (num));    \
+        } while (0)
+
+    #define ADD_OUTPUT_SIZE(type, field, fsize)             \
+        do {                                                \
+            type* __a = (void *) arg;                       \
+            outputs[noutputs].val  = (PAL_PTR) __a->field;  \
+            outputs[noutputs].size = (fsize);               \
+            outputs[noutputs].off  = offsetof(type, field); \
+            noutputs++;                                     \
+        } while (0)
+
+    #define SET_NINPUTS(num)                                \
+        do {                                                \
+            inputs = __alloca(sizeof(PAL_ARG) * (num));     \
+        } while (0)
+
+    #define ADD_INPUT_SIZE(type, field, fsize)              \
+        do {                                                \
+            type* __a = (void *) arg;                       \
+            inputs[ninputs].val  = (PAL_PTR) __a->field;    \
+            inputs[ninputs].size = (fsize);                 \
+            inputs[ninputs].off  = offsetof(type, field);   \
+            ninputs++;                                      \
+        } while (0)
+
+
+    // List the all ioctl opcodes allowed for passthrough
+    switch(cmd) {
+        // This is an example: DUMMY_IOCTL_PRINT will print out the string
+        // in the argument to the kernel log.
+        case DUMMY_IOCTL_PRINT: {
+            struct dummy_print* __arg = (void *) arg;
+            SET_ARG_TYPE(struct dummy_print);
+            SET_NOUTPUTS(1);
+            ADD_OUTPUT_SIZE(struct dummy_print, str, __arg->size);
+            // Specify input size if necessary
+            break;
+        }
+
+        case DUMMY_IOCTL_EFD: {
+            struct dummy_efd_info* __arg = (void *) arg;
+            int host_efd = 0;
+            if (fetch_host_efd(__arg->efd, &host_efd) == 0)
+            {
+                __arg->efd = host_efd;
+                SET_ARG_TYPE(struct dummy_efd_info);
+            }
+            break;
+        }
+
+        // Start changing from here
+        // case IOCTL_OPCODE: ...
+    }
+
+    if (pal_arg != NULL) {
+        PAL_NATIVE_ERRNO = 0;
+        PAL_NUM retval = DkHostExtensionCall(hdl->pal_handle, cmd, pal_arg, noutputs, outputs,
+                                             ninputs, inputs);
+        return (PAL_NATIVE_ERRNO == 0) ? (int) retval : -PAL_ERRNO;
+    }
+
+    return -ENOSYS;
 }
