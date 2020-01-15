@@ -170,7 +170,9 @@ int _DkCpuIdRetrieve(unsigned int leaf, unsigned int subleaf, unsigned int value
 }
 
 PAL_BOL
-_DkIASReport (PAL_PTR report, PAL_NUM maxsize, PAL_NUM* size) {
+_DkIASReport (PAL_PTR report, PAL_NUM maxsize, PAL_NUM* size, PAL_PTR report_data, PAL_NUM report_data_len) {
+
+    pal_printf("%s\n",  __func__);
 
     char spid_hex[sizeof(sgx_spid_t) * 2 + 1];
     ssize_t len = get_config(pal_state.root_config, "sgx.ra_client_spid", spid_hex,
@@ -221,8 +223,22 @@ _DkIASReport (PAL_PTR report, PAL_NUM maxsize, PAL_NUM* size) {
     char* status;
     char* timestamp;
     sgx_attestation_t attn;
-    __sgx_mem_aligned sgx_report_data_t report_data = {0, };
-    ret = sgx_verify_platform(&spid, subkey, &nonce, &report_data, linkable,
+    //TODO:Pass  report-data  as a parameter to this api...so that it has the hash of the pub-key.
+    __sgx_mem_aligned sgx_report_data_t report_data_aligned = {0, };
+
+    if (sizeof(sgx_report_data_t) != report_data_len)
+    {
+        pal_printf("report_data length mis-match\n");
+        return -PAL_ERROR_INVAL;
+    }
+
+    memcpy((PAL_PTR)&report_data_aligned, report_data, sizeof(sgx_report_data_t));;
+
+   pal_printf("%s:LINE_NUM=%d,  sha256 of rsa_pubkey=%x,%x,%x,%x\n", __func__,
+           __LINE__, report_data_aligned.d[0], report_data_aligned.d[1], report_data_aligned.d[2],
+           report_data_aligned.d[3]);
+
+    ret = sgx_verify_platform(&spid, subkey, &nonce, &report_data_aligned, linkable,
                               accept_group_out_of_date, accept_configuration_needed,
                               &attn, &status, &timestamp);
     if (ret < 0)

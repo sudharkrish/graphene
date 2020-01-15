@@ -145,7 +145,32 @@ static void resource_leak(void) {
  * Write /proc/report_data; read /proc/ias_report; verify IAS report
  */
 static void remote_attestation(void) {
-    // TODO
+
+    int fd;
+    ssize_t  rc;
+    sgx_report_data_t report_data = {0,};
+    memcpy((void*)&report_data, (void*) report_data_str, sizeof(report_data_str));
+    fd = open("/proc/sgx_attestation/report_data", O_WRONLY);
+    assert(fd > 0);
+    rc = write(fd, &report_data, sizeof(report_data));
+    assert(rc == sizeof(report_data));
+    close(fd);
+
+    fd = open("/proc/sgx_attestation/ias_report", O_RDONLY);
+    if (fd < 0) abort();
+    char ias_report[8*1024];
+    rc = read(fd, ias_report, sizeof(ias_report));
+    printf("IAS Report\n%.*s", rc, ias_report);
+
+    close(fd);
+
+    /*TODO:
+    if (verify_ias_report(&ias_report) == 0) {
+        printf("%s success\n", __FUNCTION__);
+    } else {
+        printf("%s failed\n", __FUNCTION__);
+    }*/
+
 }
 
 int main(int argc, char** argv) {

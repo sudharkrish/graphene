@@ -41,10 +41,15 @@ typedef struct {
 typedef uint8_t sgx_spid_t[16];
 typedef uint8_t sgx_quote_nonce_t[16];
 
-enum {
+/*enum {
     SGX_UNLINKABLE_SIGNATURE,
     SGX_LINKABLE_SIGNATURE
-};
+};*/
+//TODO: Is it ok to take the below enum as-is from Linux-SGX SDK.
+typedef enum {
+  SGX_UNLINKABLE_SIGNATURE,
+  SGX_LINKABLE_SIGNATURE
+} sgx_quote_sign_type_t;
 
 #define SGX_QUOTE_MAX_SIZE   (2048)
 

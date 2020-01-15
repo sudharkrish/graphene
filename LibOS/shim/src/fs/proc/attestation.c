@@ -57,6 +57,8 @@ static int proc_sgx_report_open(struct shim_handle* hdl, const char* name, int f
         return -ENOMEM;
     }
 
+    //Note: here we need to make sure, that target_info and report_data..
+    //are already filled(that is those pseudo-files are opened and written-to)...to get a valid report.
     sgx_report(&target_info, &report_data, &report);
 
     data->str          = (char*) &report;
@@ -87,6 +89,8 @@ static int proc_sgx_ias_report_stat(const char* name, struct stat* buf) {
 static int proc_sgx_ias_report_open(struct shim_handle* hdl, const char* name, int flags) {
     __UNUSED(name);
 
+    debug("%s:\n", __func__);
+
     struct shim_str_data* data = calloc(1, sizeof(struct shim_str_data));
     if (!data) {
         return -ENOMEM;
@@ -94,7 +98,10 @@ static int proc_sgx_ias_report_open(struct shim_handle* hdl, const char* name, i
 
     static char ias_report[10 * 1024];
     static PAL_NUM size;
-    int ret = DkIASReport(ias_report, sizeof(ias_report), &size);
+
+    //Note: here we need to make sure, that report_data(for example, with hash of public key)
+    //is already filled(that is those pseudo-files are opened and written-to).
+    int ret = DkIASReport(ias_report, sizeof(ias_report), &size, &report_data, sizeof(sgx_report_data_t));
     if (ret < 0)
         return ret;
 
@@ -238,6 +245,7 @@ static int proc_sgx_report_data_open(struct shim_handle* hdl, const char* name, 
     hdl->info.str.data = data;
     hdl->info.str.ptr  = (char*) &report_data;
 
+    debug("%s:\n", __func__);
     return 0;
 }
 
