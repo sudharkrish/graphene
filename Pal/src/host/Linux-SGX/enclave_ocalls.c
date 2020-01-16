@@ -1057,10 +1057,13 @@ int ocall_load_debug(const char * command)
  */
 int ocall_get_attestation (const sgx_spid_t* spid, const char* subkey, bool linkable,
                            const sgx_report_t* report, const sgx_quote_nonce_t* nonce,
-                           sgx_attestation_t* attestation) {
+                           sgx_attestation_t* attestation,
+                           sgx_ias_response_t *ias_response) {
 
     ms_ocall_get_attestation_t * ms;
     int retval = -EPERM;
+
+    __sgx_mem_aligned sgx_ias_response_t temp_ias_response;
 
     ms = sgx_alloc_on_ustack(sizeof(*ms));
     if (!ms)
@@ -1082,8 +1085,54 @@ int ocall_get_attestation (const sgx_spid_t* spid, const char* subkey, bool link
             goto reset;
         }
 
+        // First, try to copy the whole ms->ms_ias_response inside
+        memset(&temp_ias_response, 0, sizeof(temp_ias_response));
+        if (!sgx_copy_to_enclave(&temp_ias_response, sizeof(sgx_ias_response_t), &ms->ms_ias_response,
+                                 sizeof(sgx_ias_response_t))) {
+            retval = -EACCES;
+            goto reset;
+        }
+
+        SGX_DBG(DBG_S, "%s: ias_response.header=%p, ias-hdr-len=%lu, ias_response.body=%p, ias-body-len-%lu\n",
+                __func__,  ms->ms_ias_response.ias_header,
+                ms->ms_ias_response.ias_header_len,
+                ms->ms_ias_response.ias_body ,
+                ms->ms_ias_response.ias_body_len);
+
         // For calling ocall_munmap_untrusted, need to reset the untrusted stack
         sgx_reset_ustack();
+
+        /* TODO: Code related to temp_ias_response is added,
+        to make sure, we unmap the ias_header,
+        to handle DkIASReport flow, where ias_response will be NULL.
+        can be removed..if we have separate apis for DkIASResponse.*/
+        // Copy each field inside and free the untrusted buffers
+        if (temp_ias_response.ias_header) {
+            size_t len = temp_ias_response.ias_header_len;
+            uint8_t* ias_header = malloc(len);
+            if (!sgx_copy_to_enclave(ias_header, len, temp_ias_response.ias_header, len))
+                retval = -EACCES;
+            ocall_munmap_untrusted(temp_ias_response.ias_header, ALLOC_ALIGN_UP(len));
+            temp_ias_response.ias_header = ias_header;
+        }
+
+        if (temp_ias_response.ias_body) {
+            size_t len = temp_ias_response.ias_body_len;
+            uint8_t* ias_body = malloc(len);
+            if (!sgx_copy_to_enclave(ias_body, len, temp_ias_response.ias_body, len))
+                retval = -EACCES;
+           //Note: Currently NOT doing this unmap...since
+            //same reference(http_output in contact_intel_attest_service) is also set
+            //to attestation->ias_report.
+            //So currently this reference will get unmapped under attestation->ias_report
+            //This needs to be fixed..as part of code cleanup.
+            //ocall_munmap_untrusted(temp_ias_response.ias_body, ALLOC_ALIGN_UP(len));
+            temp_ias_response.ias_body = ias_body;
+        }
+
+        if (ias_response) {
+            memcpy(ias_response, &temp_ias_response, sizeof(sgx_ias_response_t));
+        }
 
         // Copy each field inside and free the untrusted buffers
         if (attestation->quote) {
@@ -1130,6 +1179,12 @@ int ocall_get_attestation (const sgx_spid_t* spid, const char* subkey, bool link
             if (attestation->ias_report) free(attestation->ias_report);
             if (attestation->ias_sig)    free(attestation->ias_sig);
             if (attestation->ias_certs)  free(attestation->ias_certs);
+        }
+
+        // At this point, no field should point to outside the enclave
+        if (retval < 0) {
+            if ( temp_ias_response.ias_header)      free( temp_ias_response.ias_header);
+            if ( temp_ias_response.ias_body)     free( temp_ias_response.ias_body);
         }
 
         goto out;

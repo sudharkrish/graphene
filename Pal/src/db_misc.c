@@ -155,3 +155,17 @@ DkIASReport (PAL_PTR buf, PAL_NUM bufsize, PAL_NUM* size, PAL_PTR report_data, P
     }
     LEAVE_PAL_CALL_RETURN(PAL_TRUE);
 }
+
+PAL_BOL
+DkIASResponse(PAL_PTR resp, PAL_NUM max_size, PAL_NUM* size, PAL_PTR report_data, PAL_NUM report_data_len) {
+    ENTER_PAL_CALL(DkIASResponse);
+
+    int ret = _DkIASResponse(resp, max_size, size, report_data, report_data_len);
+    if (ret < 0) {
+        _DkRaiseFailure(-ret);
+        LEAVE_PAL_CALL_RETURN(PAL_FALSE);
+    }
+    LEAVE_PAL_CALL_RETURN(PAL_TRUE);
+}
+
+

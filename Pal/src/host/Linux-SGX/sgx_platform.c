@@ -154,7 +154,7 @@ failed:
  * @attestation: Attestation data to be returned to the enclave.
  */
 int contact_intel_attest_service(const char* subkey, const sgx_quote_nonce_t* nonce,
-                                 const sgx_quote_t* quote, sgx_attestation_t* attestation) {
+                                 const sgx_quote_t* quote, sgx_attestation_t* attestation, sgx_ias_response_t *ias_response) {
 
     size_t quote_len = sizeof(sgx_quote_t) + quote->sig_len;
     size_t quote_str_len;
@@ -265,6 +265,9 @@ int contact_intel_attest_service(const char* subkey, const sgx_quote_nonce_t* no
     if (IS_ERR_P(https_header))
         goto failed;
 
+    SGX_DBG(DBG_S, "%s: https_header=%p, https_header_len=%lu, https_body-%p, https_output_len=%lu\n",
+            __func__,  https_header, https_header_len, https_output, https_output_len);
+
     // Parse the HTTPS headers
     size_t   ias_sig_len     = 0;
     uint8_t* ias_sig         = NULL;
@@ -367,7 +370,25 @@ int contact_intel_attest_service(const char* subkey, const sgx_quote_nonce_t* no
     attestation->ias_sig_len    = ias_sig_len;
     attestation->ias_certs      = ias_certs;
     attestation->ias_certs_len  = ias_certs_len;
-    https_output = NULL; // Don't free the HTTPS output
+
+    ias_response->ias_header = (uint8_t *)https_header;
+    ias_response->ias_header_len = https_header_len;
+    ias_response->ias_body     = (uint8_t *)https_output;
+    ias_response->ias_body_len = https_output_len;
+
+    SGX_DBG(DBG_S, "%s: ias_response.header=%p, ias-hdr-len=%lu, ias_response.body=%p, ias-body-len-%lu\n",
+            __func__,  ias_response->ias_header,
+            ias_response->ias_header_len,
+            ias_response->ias_body ,
+            ias_response->ias_body_len);
+
+    //Note: Setting http_header and http_output to NULL, after setting the
+    //parameters above. Will get unmapped by caller.
+        https_output = NULL; // Don't free the HTTPS output
+    // Don't unmap the HTTPS header..will be unmapped in trusted-side..after
+    //memcpy.
+    https_header = NULL;
+
     ret = 0;
 done:
     if (https_header)
@@ -410,7 +431,7 @@ failed:
  */
 int retrieve_verified_quote(const sgx_spid_t* spid, const char* subkey, bool linkable,
                             const sgx_report_t* report, const sgx_quote_nonce_t* nonce,
-                            sgx_attestation_t* attestation) {
+                            sgx_attestation_t* attestation, sgx_ias_response_t *ias_response) {
 
     int ret = connect_aesm_service();
     if (ret < 0)
@@ -465,7 +486,7 @@ int retrieve_verified_quote(const sgx_spid_t* spid, const char* subkey, bool lin
     attestation->quote = quote;
     attestation->quote_len = r->quote.len;
 
-    ret = contact_intel_attest_service(subkey, nonce, (sgx_quote_t *) quote, attestation);
+    ret = contact_intel_attest_service(subkey, nonce, (sgx_quote_t *) quote, attestation, ias_response);
     if (ret < 0) {
         INLINE_SYSCALL(munmap, 2, quote, ALLOC_ALIGN_UP(r->quote.len));
         goto failed;

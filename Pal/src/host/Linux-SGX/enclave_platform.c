@@ -167,7 +167,7 @@ int init_trusted_platform(void) {
     char* timestamp;
     ret = sgx_verify_platform(&spid, subkey, &nonce, (sgx_report_data_t*)&pal_enclave_state,
                               linkable, accept_group_out_of_date, accept_configuration_needed,
-                              /*ret_attestation=*/NULL, &status, &timestamp);
+                              /*ret_attestation=*/NULL, &status, &timestamp, NULL);
     if (ret < 0)
         return ret;
 
@@ -410,7 +410,7 @@ int sgx_verify_platform(sgx_spid_t* spid, const char* subkey, sgx_quote_nonce_t*
                         sgx_report_data_t* report_data, bool linkable,
                         bool accept_group_out_of_date, bool accept_configuration_needed,
                         sgx_attestation_t* ret_attestation, char** ret_ias_status,
-                        char** ret_ias_timestamp) {
+                        char** ret_ias_timestamp, sgx_ias_response_t *ias_response) {
 
     SGX_DBG(DBG_S, "Request quote:\n");
     SGX_DBG(DBG_S, "  spid:  %s\n", ALLOCA_BYTES2HEXSTR(*spid));
@@ -427,10 +427,20 @@ int sgx_verify_platform(sgx_spid_t* spid, const char* subkey, sgx_quote_nonce_t*
     }
 
     sgx_attestation_t attestation;
-    ret = ocall_get_attestation(spid, subkey, linkable, &report, nonce, &attestation);
+    ret = ocall_get_attestation(spid, subkey, linkable, &report, nonce, &attestation, ias_response);
     if (ret < 0) {
         SGX_DBG(DBG_E, "Failed to get attestation\n");
         return ret;
+    }
+
+    /* TODO: It may be better to have separate set of functions, for fetching ias_response,
+    like sgx_get_ias_response(instead of sgx_verify_platform), and similarly for the ocall interface,
+    and in untrusted PAL code. Temporarily using the same interfaces used by DkIASReport.
+    Needs to be fixed. */
+    if (ias_response && !ret_attestation) {
+        SGX_DBG(DBG_S, "request for ias-response, skip verification in PAL:\n");
+        ret = 0;
+        goto free_attestation;
     }
 
 #if 0
@@ -646,6 +656,9 @@ int sgx_verify_platform(sgx_spid_t* spid, const char* subkey, sgx_quote_nonce_t*
         memcpy(*ret_ias_timestamp, ias_timestamp, len);
     }
 
+    //Note:  (attn->char *) fields are mem-copied from untrusted stack to trusted in ocall_get_attestation
+    //TODO: Check and fix. In case of successful return,
+    //looks like attestation.(char *) fields are NOT getting freed.
     if (ret_attestation) {
         memcpy(ret_attestation, &attestation, sizeof(sgx_attestation_t));
         return 0;

@@ -257,6 +257,7 @@ typedef struct {
     sgx_report_t      ms_report;
     sgx_quote_nonce_t ms_nonce;
     sgx_attestation_t ms_attestation;
+    sgx_ias_response_t ms_ias_response;
 } ms_ocall_get_attestation_t;
 
 typedef struct {

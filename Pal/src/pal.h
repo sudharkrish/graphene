@@ -537,6 +537,10 @@ DkCpuIdRetrieve (PAL_IDX leaf, PAL_IDX subleaf, PAL_IDX values[4]);
 PAL_BOL
 DkIASReport (PAL_PTR buf, PAL_NUM bufsize, PAL_NUM* size, PAL_PTR report_data, PAL_NUM report_data_len);
 
+PAL_BOL
+DkIASResponse(PAL_PTR resp, PAL_NUM max_size, PAL_NUM* size, PAL_PTR report_data, PAL_NUM report_data_len);
+
+
 #ifdef __GNUC__
 # define symbol_version_default(real, name, version) \
     __asm__ (".symver " #real "," #name "@@" #version "\n")

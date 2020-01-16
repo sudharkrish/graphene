@@ -57,7 +57,7 @@ static int proc_sgx_report_open(struct shim_handle* hdl, const char* name, int f
         return -ENOMEM;
     }
 
-    //Note: here we need to make sure, that target_info and report_data..
+    //Note: Need to make sure, that target_info and report_data..
     //are already filled(that is those pseudo-files are opened and written-to)...to get a valid report.
     sgx_report(&target_info, &report_data, &report);
 
@@ -99,8 +99,8 @@ static int proc_sgx_ias_report_open(struct shim_handle* hdl, const char* name, i
     static char ias_report[10 * 1024];
     static PAL_NUM size;
 
-    //Note: here we need to make sure, that report_data(for example, with hash of public key)
-    //is already filled(that is those pseudo-files are opened and written-to).
+    //Note: Need to make sure, that target_info and report_data..
+    //are already filled(that is those pseudo-files are opened and written-to)...to get a valid report.
     int ret = DkIASReport(ias_report, sizeof(ias_report), &size, &report_data, sizeof(sgx_report_data_t));
     if (ret < 0)
         return ret;
@@ -119,6 +119,54 @@ static int proc_sgx_ias_report_open(struct shim_handle* hdl, const char* name, i
 }
 
 static int proc_sgx_ias_report_mode(const char* name, mode_t* mode) {
+    __UNUSED(name);
+    *mode = 0444;
+    return 0;
+}
+
+static int proc_sgx_ias_response_stat(const char* name, struct stat* buf) {
+    __UNUSED(name);
+    __UNUSED(buf);
+    __abort();
+}
+
+/**
+ * Calls PAL api that initiates remote attestation with IAS. PAL api returns response from
+ * IAS(header + body). After this pseudo-file is opened, caller can read the contents of IAS response.
+ */
+static int proc_sgx_ias_response_open(struct shim_handle* hdl, const char* name, int flags) {
+    __UNUSED(name);
+
+    debug("%s:\n", __func__);
+
+    struct shim_str_data* data = calloc(1, sizeof(struct shim_str_data));
+    if (!data) {
+        return -ENOMEM;
+    }
+
+    static char ias_response[10 * 1024];
+    static PAL_NUM size;
+
+    //Note: Need to make sure, that report_data(for example, with hash of public key)
+    //is already filled(that is those pseudo-files are opened and written-to).
+    int ret = DkIASResponse(ias_response, sizeof(ias_response), &size, &report_data, sizeof(sgx_report_data_t));
+    if (ret < 0)
+        return ret;
+
+    data->str          = (char*) ias_response;
+    data->len          = size;
+    data->do_not_free  = 1;
+
+    hdl->type          = TYPE_STR;
+    hdl->flags         = flags & ~O_RDONLY;
+    hdl->acc_mode      = MAY_READ;
+    hdl->info.str.data = data;
+    hdl->info.str.ptr  = (char*) ias_response;
+
+    return 0;
+}
+
+static int proc_sgx_ias_response_mode(const char* name, mode_t* mode) {
     __UNUSED(name);
     *mode = 0444;
     return 0;
@@ -290,8 +338,14 @@ static struct proc_fs_ops fs_sgx_report_data = {
     .stat = &proc_sgx_report_data_stat,
 };
 
+static struct proc_fs_ops fs_sgx_ias_response = {
+    .open = &proc_sgx_ias_response_open,
+    .mode = &proc_sgx_ias_response_mode,
+    .stat = &proc_sgx_ias_response_stat,
+};
+
 struct proc_dir dir_sgx = {
-    .size = 5,
+    .size = 6,
     .ent =
         {
             {
@@ -313,6 +367,10 @@ struct proc_dir dir_sgx = {
             {
                 .name   = "report_data",
                 .fs_ops = &fs_sgx_report_data,
+            },
+            {
+                .name   = "ias_response",
+                .fs_ops = &fs_sgx_ias_response,
             },
         },
 };

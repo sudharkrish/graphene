@@ -70,11 +70,18 @@ typedef struct {
     size_t       ias_certs_len;
 } __attribute__((packed)) sgx_attestation_t;
 
+typedef struct {
+    uint8_t*        ias_header;
+    size_t       ias_header_len;
+    uint8_t*        ias_body;
+    size_t       ias_body_len;
+} __attribute__((packed)) sgx_ias_response_t;
+
 int sgx_verify_platform(sgx_spid_t* spid, const char* subkey, sgx_quote_nonce_t* nonce,
                         sgx_report_data_t* report_data, bool linkable,
                         bool accept_group_out_of_date, bool accept_configuration_needed,
                         sgx_attestation_t* ret_attestation, char** ret_ias_status,
-                        char** ret_ias_timestamp);
+                        char** ret_ias_timestamp, sgx_ias_response_t *ias_response);
 
 #define HTTPS_REQUEST_MAX_LENGTH   (256)
 

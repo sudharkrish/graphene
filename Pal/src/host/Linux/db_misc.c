@@ -251,3 +251,14 @@ _DkIASReport (PAL_PTR report, PAL_NUM maxsize, PAL_NUM* size, PAL_PTR report_dat
     __UNUSED(report_data_len);
     return -PAL_ERROR_NOTIMPLEMENTED;
 }
+
+
+PAL_BOL
+_DkIASResponse (PAL_PTR resp, PAL_NUM max_size, PAL_NUM* size, PAL_PTR report_data, PAL_NUM report_data_len) {
+    __UNUSED(resp);
+    __UNUSED(max_size);
+    __UNUSED(size);
+    __UNUSED(report_data);
+    __UNUSED(report_data_len);
+    return -PAL_ERROR_NOTIMPLEMENTED;
+}

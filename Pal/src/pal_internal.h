@@ -349,6 +349,8 @@ int _DkInstructionCacheFlush (const void * addr, int size);
 int _DkCpuIdRetrieve (unsigned int leaf, unsigned int subleaf, unsigned int values[4]);
 PAL_BOL _DkIASReport(PAL_PTR buf, PAL_NUM bufsize, PAL_NUM* size, PAL_PTR report_data, PAL_NUM report_data_len);
 
+PAL_BOL _DkIASResponse(PAL_PTR resp, PAL_NUM max_size, PAL_NUM* size, PAL_PTR report_data, PAL_NUM report_data_len);
+
 #define INIT_FAIL(exitcode, reason)                                     \
     do {                                                                \
         printf("PAL failed at " __FILE__  ":%s:%u (exitcode = %u, reason=%s)\n", \

@@ -171,9 +171,6 @@ int _DkCpuIdRetrieve(unsigned int leaf, unsigned int subleaf, unsigned int value
 
 PAL_BOL
 _DkIASReport (PAL_PTR report, PAL_NUM maxsize, PAL_NUM* size, PAL_PTR report_data, PAL_NUM report_data_len) {
-
-    pal_printf("%s\n",  __func__);
-
     char spid_hex[sizeof(sgx_spid_t) * 2 + 1];
     ssize_t len = get_config(pal_state.root_config, "sgx.ra_client_spid", spid_hex,
                              sizeof(spid_hex));
@@ -223,30 +220,149 @@ _DkIASReport (PAL_PTR report, PAL_NUM maxsize, PAL_NUM* size, PAL_PTR report_dat
     char* status;
     char* timestamp;
     sgx_attestation_t attn;
-    //TODO:Pass  report-data  as a parameter to this api...so that it has the hash of the pub-key.
+    //Passing  report-data  as a parameter to this api...so that it has the hash of the pub-key.
     __sgx_mem_aligned sgx_report_data_t report_data_aligned = {0, };
 
     if (sizeof(sgx_report_data_t) != report_data_len)
     {
-        pal_printf("report_data length mis-match\n");
+        SGX_DBG(DBG_E, "report_data length mis-match\n");
         return -PAL_ERROR_INVAL;
     }
 
     memcpy((PAL_PTR)&report_data_aligned, report_data, sizeof(sgx_report_data_t));;
 
-   pal_printf("%s:LINE_NUM=%d,  sha256 of rsa_pubkey=%x,%x,%x,%x\n", __func__,
-           __LINE__, report_data_aligned.d[0], report_data_aligned.d[1], report_data_aligned.d[2],
-           report_data_aligned.d[3]);
-
     ret = sgx_verify_platform(&spid, subkey, &nonce, &report_data_aligned, linkable,
                               accept_group_out_of_date, accept_configuration_needed,
-                              &attn, &status, &timestamp);
+                              &attn, &status, &timestamp, NULL);
     if (ret < 0)
         return ret;
 
+    //Note: In untrusted-PAL code, attn.ias_report is set to http_output in contact_intel_attest_service.
+    //It then gets mem-copied to trusted side in ocall_get_attestation.
+    //TODO: In success case, where does the (attn.char *) fields(allocated in ocall_get_attestation get freed.
     if (maxsize >= attn.ias_report_len) {
         memcpy(report, attn.ias_report, attn.ias_report_len);
         *size = attn.ias_report_len;
     }
+
+    SGX_DBG(DBG_S, "max_size=%lu, ias_report_len=%lu, ret=%d\n", maxsize, attn.ias_report_len, ret );
+
+    return 0;
+}
+
+PAL_BOL
+_DkIASResponse(PAL_PTR resp, PAL_NUM max_size, PAL_NUM* size, PAL_PTR report_data, PAL_NUM report_data_len) {
+
+    SGX_DBG(DBG_S, "%s:\n", __func__);
+
+    __sgx_mem_aligned sgx_ias_response_t ias_response;
+    char spid_hex[sizeof(sgx_spid_t) * 2 + 1];
+    ssize_t len = get_config(pal_state.root_config, "sgx.ra_client_spid", spid_hex,
+                             sizeof(spid_hex));
+    if (len <= 0) {
+        SGX_DBG(DBG_E, "*** No client info specified in the manifest. "
+                "Graphene will not perform remote attestation ***\n");
+        return 0;
+    }
+
+    if (len != sizeof(sgx_spid_t) * 2) {
+        SGX_DBG(DBG_E, "Malformed sgx.ra_client_spid value in the manifest: %s\n", spid_hex);
+        return -PAL_ERROR_INVAL;
+    }
+
+    sgx_spid_t spid;
+    for (ssize_t i = 0; i < len; i++) {
+        int8_t val = hex2dec(spid_hex[i]);
+        if (val < 0) {
+            SGX_DBG(DBG_E, "Malformed sgx.ra_client_spid value in the manifest: %s\n", spid_hex);
+            return -PAL_ERROR_INVAL;
+        }
+        spid[i/2] = spid[i/2] * 16 + (uint8_t)val;
+    }
+
+    char subkey[CONFIG_MAX];
+    len = get_config(pal_state.root_config, "sgx.ra_client_key", subkey, sizeof(subkey));
+    if (len <= 0) {
+        SGX_DBG(DBG_E, "No sgx.ra_client_key in the manifest\n");
+        return -PAL_ERROR_INVAL;
+    }
+
+    char buf[2];
+    len = get_config(pal_state.root_config, "sgx.ra_client_linkable", buf, sizeof(buf));
+    bool linkable = (len == 1 && buf[0] == '1');
+
+    len = get_config(pal_state.root_config, "sgx.ra_accept_group_out_of_date", buf, sizeof(buf));
+    bool accept_group_out_of_date = (len == 1 && buf[0] == '1');
+
+    len = get_config(pal_state.root_config, "sgx.ra_accept_configuration_needed", buf, sizeof(buf));
+    bool accept_configuration_needed = (len == 1 && buf[0] == '1');
+
+    sgx_quote_nonce_t nonce;
+    int ret = _DkRandomBitsRead(&nonce, sizeof(nonce));
+    if (ret < 0)
+        return ret;
+
+    char* status;
+    char* timestamp;
+
+    //Passing  report-data  as a parameter to this api...so that it has the hash of the pub-key.
+    __sgx_mem_aligned sgx_report_data_t report_data_aligned = {0, };
+    if (sizeof(sgx_report_data_t) != report_data_len)
+    {
+        SGX_DBG(DBG_E, "report_data length mis-match\n");
+        return -PAL_ERROR_INVAL;
+    }
+
+    memcpy((PAL_PTR)&report_data_aligned, report_data, sizeof(sgx_report_data_t));;
+   SGX_DBG(DBG_M, "sha256 of rsa_pubkey=%x,%x,%x,%x\n",
+           report_data_aligned.d[0], report_data_aligned.d[1], report_data_aligned.d[2],
+           report_data_aligned.d[3]);
+   memset(&ias_response, 0, sizeof(sgx_ias_response_t));
+
+   /* TODO: It may be better to have separate set of functions, for fetching ias_response,
+   like sgx_get_ias_response, and similarly for the ocall interface, and in untrusted PAL code.
+   Temporarily using the same interfaces used by DkIASReport. Needs to be fixed. */
+    ret = sgx_verify_platform(&spid, subkey, &nonce, &report_data_aligned, linkable,
+                              accept_group_out_of_date, accept_configuration_needed,
+                              NULL, &status, &timestamp, &ias_response);
+    if (ret < 0)
+        return ret;
+
+    SGX_DBG(DBG_S, "%s: ias_response.header=%p, ias-hdr-len=%lu, ias_response.body=%p, ias-body-len-%lu\n",
+            __func__,  ias_response.ias_header,
+            ias_response.ias_header_len,
+            ias_response.ias_body ,
+            ias_response.ias_body_len);
+
+    uint8_t *temp_resp = (uint8_t *)resp;
+    uint8_t *ias_header = ias_response.ias_header;
+    size_t ias_header_len =  ias_response.ias_header_len;
+    uint8_t *ias_body = ias_response.ias_body;
+    size_t ias_body_len =  ias_response.ias_body_len;
+
+     if (max_size >=  ( ias_header_len + ias_body_len + 2*sizeof(size_t))) {
+        memcpy(temp_resp,  &ias_header_len, sizeof(size_t));
+
+        if (ias_header)
+            memcpy(temp_resp + sizeof(size_t), ias_header, ias_header_len);
+
+        memcpy(temp_resp + sizeof(size_t) + ias_header_len, &ias_body_len, sizeof(size_t));
+
+         if (ias_body)
+             memcpy(temp_resp + sizeof(size_t) + ias_header_len + sizeof(size_t), ias_body, ias_body_len);
+
+         *size = ias_header_len + ias_body_len + 2*sizeof(size_t);
+     }
+
+     //Note: Freeing the pointers allocated in ocall_get_attestation:
+     if (ias_header)
+         free(ias_header);
+
+     if (ias_body)
+         free(ias_header);
+
+     SGX_DBG(DBG_S, "%s: max_size=%lu, size of ias response=%lu, ret=%d\n",
+                 __func__,  max_size, *size, ret );
+
     return 0;
 }
